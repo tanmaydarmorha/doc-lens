@@ -1,0 +1,14 @@
+langchain==0.3.23
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
+langchain-ollama
+azure-ai-documentintelligence==1.0.2
+pydantic==2.11.2
+python-dotenv
+PyPDF2
+langchain-ollama
+faiss-cpu
+streamlit
+langgraph
