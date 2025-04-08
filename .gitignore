@@ -81,3 +81,6 @@ appendonly.aof
 
 # resources
 app/resources/
+
+# FAISS index
+faiss_index/

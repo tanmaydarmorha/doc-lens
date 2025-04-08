@@ -21,6 +21,7 @@ from langchain_community.vectorstores import FAISS
 from app.services.document_loader import read_text_and_create_chunks
 from app.services.llm_service import LLMService
 from app.utils import get_embedding_model
+from app.services.embedding_service import create_embeddings_and_save_to_vector_store, retrieve_from_vector_store
 
 
 def save_uploaded_file(uploaded_file):
@@ -46,28 +47,25 @@ def save_uploaded_file(uploaded_file):
 
 def process_document(file_path):
     """
-    Process a document file and create a vector store.
+    Process a document file and create embeddings.
     
     Args:
         file_path: Path to the document file
         
     Returns:
-        FAISS vector store containing document chunks
+        Boolean indicating if processing was successful
     """
     # Load the document and split it into chunks
     chunks = read_text_and_create_chunks(file_path)
     
     if not chunks:
         st.error("No content could be extracted from the document.")
-        return None
+        return False
     
-    # Get the embedding model
-    embedding_model = get_embedding_model()
+    # Create embeddings and save to vector store using the tracking UUID
+    create_embeddings_and_save_to_vector_store(chunks, st.session_state.tracking_id)
     
-    # Create a vector store from the chunks
-    vectorstore = FAISS.from_documents(chunks, embedding_model)
-    
-    return vectorstore
+    return True
 
 
 def main():
@@ -84,8 +82,6 @@ def main():
     # Initialize session state variables if they don't exist
     if "tracking_id" not in st.session_state:
         st.session_state.tracking_id = str(uuid.uuid4())
-    if "vectorstore" not in st.session_state:
-        st.session_state.vectorstore = None
     if "file_processed" not in st.session_state:
         st.session_state.file_processed = False
     if "chat_history" not in st.session_state:
@@ -99,7 +95,8 @@ def main():
         st.header("Document Upload")
         uploaded_file = st.file_uploader("Choose a text file", type=["txt", "md"])
         
-        if uploaded_file is not None:
+        # Only process the document if it's newly uploaded and not already processed
+        if uploaded_file is not None and not st.session_state.file_processed:
             # Display a loading spinner while processing the document
             with st.spinner("Processing document..."):
                 # Save the uploaded file
@@ -107,10 +104,9 @@ def main():
                 
                 if file_path:
                     # Process the document and create a vector store
-                    vectorstore = process_document(file_path)
+                    success = process_document(file_path)
                     
-                    if vectorstore:
-                        st.session_state.vectorstore = vectorstore
+                    if success:
                         st.session_state.file_processed = True
                         st.success(f"Document processed successfully!")
                     
@@ -145,17 +141,24 @@ def main():
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
                 with st.spinner("Thinking..."):
-                    # Initialize the LLM service with the vector store
-                    llm_service = LLMService(vectorstore=st.session_state.vectorstore)
-                    
-                    # Get the response from the LLM service
-                    response = llm_service.query(
-                        question=user_question,
-                        tracking_id=st.session_state.tracking_id
-                    )
-                    
-                    # Display the response
-                    message_placeholder.write(response)
+                    try:
+                        # Retrieve the vector store using the tracking UUID
+                        vectorstore = retrieve_from_vector_store(st.session_state.tracking_id)
+                        # Initialize the LLM service with the vector store
+                        llm_service = LLMService(vectorstore=vectorstore)
+                        
+                        # Get the response from the LLM service
+                        response = llm_service.query(
+                            question=user_question,
+                            tracking_id=st.session_state.tracking_id
+                        )
+                        
+                        # Display the response
+                        message_placeholder.write(response)
+                    except FileNotFoundError as e:
+                        error_message = "Vector store not found. Please upload a document first."
+                        message_placeholder.error(error_message)
+                        response = error_message
             
             # Add assistant response to chat history
             st.session_state.chat_history.append({"role": "assistant", "content": response})
